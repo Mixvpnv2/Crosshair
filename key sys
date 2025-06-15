@@ -1,76 +1,114 @@
-settings = {
-    color = Color3.fromRGB(255, 255/2, 255),    -- The color of the crosshair, takes any Color3.
-    thickness = 2,                              -- The thickness of the crosshair in pixel, takes any full number.
-    length = 8,                                 -- The length of each side in pixel, takes any full number.
-    opacity = 1,                                -- The opacity of the crosshair, takes any number, 1 is fully visible and 0 is invisible.
-	x_offset = 0,                               -- The x offset of the crosshair, takes any positive or negative number.
-	y_offset = 0,                               -- The y offset of the crosshair, takes any positive or negative number.
-	
-    recenter = true                             -- Automatically recenter the crosshair if your window was resized, this is an option in case it causes lag for anyone which I highly doubt, if it does for you, then please stop using your Microwave for Roblox.
-}
+-- Key System Module
+local KeySystem = {}
+KeySystem.__index = KeySystem
 
-local cam = workspace.CurrentCamera or workspace:FindFirstChildOfClass("Camera")
+-- Configuration
+local KEY_FILE = "keys.cfg"
+local KEY_LENGTH = 25
+local HASH_SECRET = "7x!A%D*G-KaPdSgVkYp3s6v9y$B&E(H"  -- Change this to your own secret
 
-getgenv().crosshair_x = getgenv().crosshair_x or {}
-getgenv().crosshair_y = getgenv().crosshair_y or {}
-
-local function draw(a1, a2)
-    local obj = Drawing.new(a1)
-    for i, v in pairs(a2) do 
-        obj[i] = v
+-- Generate secure SHA256 hash
+local function hash(input)
+    local bytes = string.split(string.gsub(game:GetService("HashService"):ComputeSHA256(tostring(input) .. HASH_SECRET), ""))
+    local output = ""
+    for i = 1, #bytes, 3 do
+        output ..= string.format("%02x", #bytes[i] + #bytes[i+1] * 3 + #bytes[i+2] * 7)
     end
-    return obj
+    return string.sub(output, 1, KEY_LENGTH):upper()
 end
 
-if getgenv().crosshair_x ~= nil or getgenv().crosshair_x ~= {} then
-    if getgenv().crosshair_x["Line"] then
-        getgenv().crosshair_x["Line"]:Remove()
+function KeySystem.new()
+    local self = setmetatable({}, KeySystem)
+    self.validKeys = {}
+    self.usedKeys = {}
+    self:loadKeys()
+    return self
+end
+
+function KeySystem:loadKeys()
+    if isfile(KEY_FILE) then
+        local success, data = pcall(function()
+            return game:GetService("HttpService"):JSONDecode(readfile(KEY_FILE))
+        end)
+        if success and data.keys then
+            self.validKeys = data.keys
+            self.usedKeys = data.used or {}
+        end
+    end
+end
+
+function KeySystem:saveKeys()
+    local data = {
+        keys = self.validKeys,
+        used = self.usedKeys,
+        timestamp = os.time()
+    }
+    writefile(KEY_FILE, game:GetService("HttpService"):JSONEncode(data))
+end
+
+function KeySystem:generateKey()
+    local charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  -- No confusing characters
+    local key = ""
+    
+    for i = 1, KEY_LENGTH do
+        if i > 1 and i % 5 == 0 then
+            key ..= "-"
+        else
+            local rand = math.random(1, #charset)
+            key ..= string.sub(charset, rand, rand)
+        end
     end
     
-    if getgenv().crosshair_x["Connection"] then
-        getgenv().crosshair_x["Connection"]:Disconnect()
-    end
-    getgenv().crosshair_x = {}
+    local hashedKey = hash(key)
+    table.insert(self.validKeys, hashedKey)
+    self:saveKeys()
+    return key
 end
 
-if getgenv().crosshair_y ~= nil or getgenv().crosshair_y ~= {} then
-    if getgenv().crosshair_y["Line"] then
-        getgenv().crosshair_y["Line"]:Remove()
-    end
-
-    if getgenv().crosshair_y["Connection"] then
-        getgenv().crosshair_y["Connection"]:Disconnect()
+function KeySystem:validateKey(inputKey)
+    local hashedInput = hash(inputKey)
+    
+    -- Check if key is valid
+    for i, validKey in ipairs(self.validKeys) do
+        if validKey == hashedInput then
+            -- Check if already used
+            for _, usedKey in ipairs(self.usedKeys) do
+                if usedKey == hashedInput then
+                    return false, "Key already used"
+                end
+            end
+            
+            -- Register as used
+            table.insert(self.usedKeys, hashedInput)
+            self:saveKeys()
+            return true
+        end
     end
     
-    getgenv().crosshair_y = {}
+    return false, "Invalid key"
 end
 
-getgenv().crosshair_x["Line"] = draw("Line", {
-    To = Vector2.new(((cam.ViewportSize.x / 2) - settings.x_offset) - settings.length, (cam.ViewportSize.y / 2) - settings.y_offset),
-    From = Vector2.new(((cam.ViewportSize.x / 2) - settings.x_offset) + settings.length, (cam.ViewportSize.y / 2) - settings.y_offset),
-    Thickness = settings.thickness,
-    Color = settings.color,
-    Transparency = settings.opacity,
-    Visible = true
-})
-
-getgenv().crosshair_y["Line"] = draw("Line", {
-    To = Vector2.new((cam.ViewportSize.x / 2) - settings.x_offset, ((cam.ViewportSize.y / 2) - settings.y_offset) - settings.length),
-    From = Vector2.new((cam.ViewportSize.x / 2) - settings.x_offset, ((cam.ViewportSize.y / 2) - settings.y_offset) + settings.length),
-    Thickness = settings.thickness,
-    Color = settings.color,
-    Transparency = settings.opacity,
-    Visible = true
-})
-
-if settings.recenter then
-    getgenv().crosshair_x["Connection"] = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-        getgenv().crosshair_x["Line"]["To"] = Vector2.new(((cam.ViewportSize.x / 2) - settings.x_offset) - settings.length, (cam.ViewportSize.y / 2) - settings.y_offset)
-        getgenv().crosshair_x["Line"]["From"] = Vector2.new(((cam.ViewportSize.x / 2) - settings.x_offset) + settings.length, (cam.ViewportSize.y / 2) - settings.y_offset)
-    end)
-
-    getgenv().crosshair_y["Connection"] = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-        getgenv().crosshair_y["Line"]["To"] = Vector2.new((cam.ViewportSize.x / 2) - settings.x_offset, ((cam.ViewportSize.y / 2) - settings.y_offset) - settings.length)
-        getgenv().crosshair_y["Line"]["From"] = Vector2.new((cam.ViewportSize.x / 2) - settings.x_offset, ((cam.ViewportSize.y / 2) - settings.y_offset) + settings.length)
-    end)
+function KeySystem:generateBulk(amount)
+    local keys = {}
+    for i = 1, amount do
+        table.insert(keys, self:generateKey())
+    end
+    return keys
 end
+
+-- Anti-tampering protection
+spawn(function()
+    while wait(60) do
+        if KeySystem.validKeys then
+            local current = game:GetService("HttpService"):JSONEncode({
+                keys = KeySystem.validKeys,
+                used = KeySystem.usedKeys
+            })
+            if isfile(KEY_FILE) and readfile(KEY_FILE) ~= current then
+                writefile(KEY_FILE, current)
+            end
+        end
+    end
+end)
+
+return KeySystem
